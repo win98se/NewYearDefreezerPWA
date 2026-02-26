@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>恭喜发财解冻器</title>
+	<!-- Lunar Date Library -->
+	<script src="https://cdn.jsdelivr.net/npm/lunar-javascript/lunar.min.js"></script>
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+			overflow: hidden;
+			height: 100vh;
+			width: 100vw;
+		}
+
+		/* PC Adaptation */
+		@media (min-width: 768px) {
+			body {
+				background-color: #222; /* Darker background */
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				padding: 20px; /* Ensure gap on small screens */
+			}
+
+			#app {
+				width: auto; /* Let aspect ratio decide or fallback to max-width */
+				max-width: 100%;
+				height: 90vh; /* 90% of screen height */
+				aspect-ratio: 9/18; /* Typical mobile ratio */
+				border-radius: 16px;
+				overflow: hidden;
+				box-shadow: 0 0 30px rgba(0,0,0,0.6);
+				position: relative;
+			}
+
+			/* Force background to match height exactly, preventing vertical crop */
+			#bg-layer {
+				background-size: auto 100% !important;
+				background-position: center top;
+				background-repeat: no-repeat;
+				/* If the aspect ratio creates gaps on sides, we might want a different color behind */
+				background-color: #f0f0f0;
+			}
+		}
+
+		#app {
+			position: relative;
+			width: 100%;
+			height: 100%;
+			background-color: white;
+			transition: background-color 0.5s;
+		}
+
+		/* Layers */
+		#bg-layer, #ice-layer, #particle-canvas, #content-layer {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+		#bg-layer {
+			background-size: cover;
+			background-position: center;
+			background-repeat: no-repeat;
+			z-index: 1;
+			/* Blend mode handling is complex in CSS alone for dynamic tints,
+			we'll handle tint via background-color overlay in JS or a pseudo-element if needed.
+			For now, we'll use a filter or overlay div approach. */
+			transition: filter 0.5s;
+		}
+
+		/* Tint overlay on top of bg image */
+		#bg-layer::after {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background-color: rgba(129, 212, 250, 0); /* Default transparent */
+			mix-blend-mode: multiply; /* Similar to modulate roughly? */
+			transition: background-color 0.5s;
+			pointer-events: none;
+			z-index: 1;
+		}
+
+		#ice-layer {
+			background-image: url('ice.png'); /* Needs asset */
+			background-size: cover;
+			background-position: center;
+			opacity: 0;
+			pointer-events: none;
+			z-index: 2;
+			transition: opacity 0.5s;
+		}
+
+		#particle-canvas {
+			z-index: 3;
+			pointer-events: none;
+		}
+
+		#content-layer {
+			z-index: 4;
+			display: flex;
+			flex-direction: column;
+		}
+
+		/* Controls */
+		.controls-top {
+			display: flex;
+			padding: 16px;
+			margin-top: env(safe-area-inset-top);
+		}
+
+		.spacer {
+			flex-grow: 1;
+		}
+
+		.icon-btn {
+			background: rgba(255, 255, 255, 0.3);
+			border: none;
+			border-radius: 50%;
+			width: 48px;
+			height: 48px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			cursor: pointer;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+			transition: transform 0.1s, background 0.3s;
+			color: rgba(0, 0, 0, 0.87);
+		}
+
+		.icon-btn:active {
+			transform: scale(0.95);
+		}
+
+		.main-content {
+			flex-grow: 1;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			padding-bottom: 20vh; /* Shift content up slightly */
+			justify-content: flex-end; /* Push to bottom then use spacer/margin */
+		}
+
+		/* Text Styles */
+		#title-text {
+			font-size: 22px;
+			font-weight: bold;
+			text-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+			margin-bottom: 16px;
+			transition: color 0.5s;
+		}
+
+		.countdown-container {
+			display: flex;
+			align-items: flex-end;
+			gap: 8px;
+		}
+
+		.time-block {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+		}
+
+		.time-box {
+			background: rgba(255, 255, 255, 0.9);
+			border: 1px solid rgba(0,0,0,0.12);
+			border-radius: 8px;
+			padding: 4px 8px;
+			min-width: 44px;
+			font-size: 24px;
+			font-weight: bold;
+			color: black;
+			text-align: center;
+			box-shadow: 2px 2px 4px rgba(0,0,0,0.26);
+		}
+
+		.time-label {
+			margin-top: 4px;
+			font-size: 16px;
+			font-weight: bold;
+			text-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+			transition: color 0.5s;
+		}
+
+		.spacer-bottom {
+			height: 80px; /* Space between timer and dates */
+			flex-grow: 0.3; /* Adjustable flex */
+		}
+
+		.date-info {
+			text-align: center;
+			margin-bottom: 40px;
+		}
+
+		#gregorian-date {
+			font-size: 20px;
+			font-weight: bold;
+			text-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+			margin-bottom: 8px;
+			transition: color 0.5s;
+		}
+
+		#lunar-date {
+			font-size: 18px;
+			font-weight: bold;
+			text-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+			transition: color 0.5s;
+		}
+
+		/* FAB */
+		.fab {
+			position: absolute;
+			bottom: 24px;
+			right: 24px;
+			width: 56px;
+			height: 56px;
+			border-radius: 28px;
+			background-color: #00bcd4; /* Colors.cyan */
+			color: white;
+			border: none;
+			box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			cursor: pointer;
+			transition: transform 0.1s;
+		}
+		.fab:active {
+			transform: scale(0.95);
+		}
+
+		/* Modal */
+		#modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0,0,0,0.5);
+			z-index: 100;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.hidden {
+			display: none !important;
+		}
+		.modal {
+			background: white;
+			padding: 24px;
+			border-radius: 8px;
+			max-width: 80%;
+			width: 300px;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+		}
+		.modal h2 {
+			margin-bottom: 16px;
+			font-size: 20px;
+		}
+		.modal p {
+			margin-bottom: 12px;
+			font-size: 16px;
+			line-height: 1.5;
+		}
+		.modal a {
+			color: #2196f3;
+		}
+		.disclaimer {
+			font-size: 14px;
+			color: #666;
+		}
+		.modal-actions {
+			display: flex;
+			justify-content: flex-end;
+			margin-top: 16px;
+		}
+		#btn-close-modal {
+			border: none;
+			background: transparent;
+			color: #2196f3;
+			font-weight: bold;
+			font-size: 16px;
+			cursor: pointer;
+			padding: 8px;
+		}
+	</style>
+
+	<link rel="manifest" href="manifest.webmanifest">
+	<script>
+		if(typeof navigator.serviceWorker!=='undefined') {
+			navigator.serviceWorker.register('sw.js');
+		}
+	</script>
+</head>
+<body>
+	<div id="app">
+		<!-- Background Layer -->
+		<div id="bg-layer"></div>
+
+		<!-- Ice Overlay Layer -->
+		<div id="ice-layer"></div>
+
+		<!-- Particles Canvas -->
+		<canvas id="particle-canvas"></canvas>
+
+		<!-- Content Layer -->
+		<div id="content-layer">
+			<!-- Controls -->
+			<div class="controls-top">
+				<button id="btn-info" class="icon-btn" aria-label="关于">
+					<svg viewBox="0 0 24 24" width="24" height="24">
+						<path fill="currentColor" d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8 8 8z"/>
+					</svg>
+				</button>
+				<div class="spacer"></div>
+				<button id="btn-music" class="icon-btn" aria-label="音乐">
+					<svg id="icon-music-on" viewBox="0 0 24 24" width="24" height="24">
+						<path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+					</svg>
+					<svg id="icon-music-off" viewBox="0 0 24 24" width="24" height="24" style="display: none;">
+						<path fill="currentColor" d="M4.27 3L3 4.27l9 9v.28c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4v-1.73L19.73 21 21 19.73 4.27 3zM14 7h4V3h-6v5.18l2 2z"/>
+					</svg>
+				</button>
+			</div>
+
+			<div class="main-content">
+				<h1 id="title-text">距离解冻还有</h1>
+
+				<div class="countdown-container">
+					<div class="time-block">
+						<div class="time-box" id="days">00</div>
+						<div class="time-label">天</div>
+					</div>
+					<div class="time-block">
+						<div class="time-box" id="hours">00</div>
+						<div class="time-label">小时</div>
+					</div>
+					<div class="time-block">
+						<div class="time-box" id="minutes">00</div>
+						<div class="time-label">分</div>
+					</div>
+					<div class="time-block">
+						<div class="time-box" id="seconds">00</div>
+						<div class="time-label">秒</div>
+					</div>
+				</div>
+
+				<div class="spacer-bottom"></div>
+
+				<div class="date-info">
+					<div id="gregorian-date">2024年02月10日</div>
+					<div id="lunar-date">农历 甲辰年 正月初一</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Info Modal -->
+	<div id="modal-overlay" class="hidden">
+		<div class="modal">
+			<h2>关于</h2>
+			<p>
+				作者：@<a href="https://space.bilibili.com/6297797" target="_blank">依然匹萨吧</a>
+			</p>
+			<p class="disclaimer">声明：本软件免费，禁止商用贩卖，音乐和形象版权归原版权方所有</p>
+			<div class="modal-actions">
+				<button id="btn-close-modal">关闭</button>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		// State
+		let state = {
+			now: new Date(),
+			timeUntilEve: 0,
+			frozenFactor: 1.0, // 0.0 = Thawed, 1.0 = Frozen
+			isMuted: false,
+			particles: []
+		};
+
+		// Configuration
+		const CONFIG = {
+			maxFrozenDays: 183.0,
+			audioPath: 'music.mp3'
+		};
+
+		// Audio - Simplified to use HTML5 Audio
+		let bgMusic = new Audio(CONFIG.audioPath);
+		bgMusic.loop = true;
+		bgMusic.preload = 'auto'; // Ensure it loads immediately
+
+		// Enable pitch preservation = false to allow "tape deck" slowing effect
+		if (typeof bgMusic.preservesPitch !== 'undefined') {
+			bgMusic.preservesPitch = false;
+		} else if (typeof bgMusic.mozPreservesPitch !== 'undefined') {
+			bgMusic.mozPreservesPitch = false;
+		} else if (typeof bgMusic.webkitPreservesPitch !== 'undefined') {
+			bgMusic.webkitPreservesPitch = false;
+		}
+
+		let isAudioInitialized = false;
+		let isPlaying = false;
+
+		// DOM Elements
+		const els = {
+			bgLayer: document.getElementById('bg-layer'),
+			iceLayer: document.getElementById('ice-layer'),
+			canvas: document.getElementById('particle-canvas'),
+			titleText: document.getElementById('title-text'),
+			days: document.getElementById('days'),
+			hours: document.getElementById('hours'),
+			minutes: document.getElementById('minutes'),
+			seconds: document.getElementById('seconds'),
+			gregorianDate: document.getElementById('gregorian-date'),
+			lunarDate: document.getElementById('lunar-date'),
+			btnMusic: document.getElementById('btn-music'),
+			iconMusicOn: document.getElementById('icon-music-on'),
+			iconMusicOff: document.getElementById('icon-music-off'),
+			btnInfo: document.getElementById('btn-info'),
+			modalOverlay: document.getElementById('modal-overlay'),
+			btnCloseModal: document.getElementById('btn-close-modal'),
+			timeLabels: document.querySelectorAll('.time-label')
+		};
+
+		// Helpers
+		function pad(num) {
+			return num.toString().padStart(2, '0');
+		}
+
+		// Logic
+		function init() {
+			updateState();
+			setInterval(() => {
+				state.now = new Date();
+				updateState();
+			}, 1000);
+
+			initParticles();
+			requestAnimationFrame(renderLoop);
+
+			// Try to play immediately (might fail due to browser policy)
+			if (!state.isMuted) {
+				// We set initialized to true to attempt play
+				isAudioInitialized = true;
+				playAudio();
+			}
+
+			// Event Listeners
+			els.btnMusic.addEventListener('click', toggleMusic);
+
+			// Fallback: If immediate play failed, play on first click
+			document.body.addEventListener('click', () => {
+				if (!isPlaying && !state.isMuted) {
+					console.log("User interaction triggering audio");
+					isAudioInitialized = true;
+					playAudio();
+				}
+			}, { once: true });
+
+			els.btnInfo.addEventListener('click', () => {
+				els.modalOverlay.classList.remove('hidden');
+			});
+
+			els.btnCloseModal.addEventListener('click', () => {
+				els.modalOverlay.classList.add('hidden');
+			});
+		}
+
+		async function initAudio() {
+			if (isAudioInitialized) return;
+
+			try {
+				// Just prepare the playback
+				// For local file playback without server, fetch() fails due to CORS.
+				// new Audio() usually works better.
+				isAudioInitialized = true;
+				playAudio();
+			} catch (e) {
+				console.error("Audio init failed", e);
+			}
+		}
+
+		function playAudio() {
+			if (!isAudioInitialized || isPlaying) return;
+
+			bgMusic.play().then(() => {
+				isPlaying = true;
+				updateAudioParams();
+			}).catch(e => {
+				console.warn("Autoplay prevented or failed", e);
+				isPlaying = false;
+			});
+		}
+
+		function stopAudio() {
+			bgMusic.pause();
+			isPlaying = false;
+		}
+
+		function toggleMusic() {
+			state.isMuted = !state.isMuted;
+
+			if (state.isMuted) {
+				els.iconMusicOn.style.display = 'none';
+				els.iconMusicOff.style.display = 'block';
+				bgMusic.muted = true;
+			} else {
+				els.iconMusicOn.style.display = 'block';
+				els.iconMusicOff.style.display = 'none';
+				bgMusic.muted = false;
+
+				if (!isAudioInitialized) {
+					initAudio();
+				} else {
+					if (!isPlaying) playAudio();
+				}
+			}
+			updateAudioParams();
+		}
+
+		function updateAudioParams() {
+			if (!isAudioInitialized) return;
+
+			// Logic from Flutter:
+			// Speed: 1.0 (Thawed) -> 0.4 (Frozen)
+			// speed = 1.0 - (frozenFactor * 0.6) clamped 0.4
+			let speed = 1.0 - (state.frozenFactor * 0.6);
+			speed = Math.max(0.4, Math.min(1.0, speed));
+
+			// Pitch: 1.0 (Thawed) -> 0.7 (Frozen)
+			let pitch = 1.0 - (state.frozenFactor * 0.3);
+			pitch = Math.max(0.7, Math.min(1.0, pitch));
+
+			// Combined rate for playback
+			// Since preservesPitch is false, changing playbackRate changes both speed and pitch naturally.
+			// If we want accurate pitch mapping independent of speed, we'd need Web Audio API.
+			// But simplified <audio> element logic: slower speed = lower pitch.
+			// Flutter logic combined them: speed * pitch.
+			let combinedRate = speed * pitch;
+			combinedRate = Math.max(0.28, Math.min(1.0, combinedRate));
+
+			if (Math.abs(bgMusic.playbackRate - combinedRate) > 0.01) {
+				bgMusic.playbackRate = combinedRate;
+			}
+		}
+
+		function updateState() {
+			const now = state.now;
+
+			// 1. Lunar Calculation
+			// Using global Lunar from lunar-javascript
+			const lunar = Lunar.fromDate(now);
+			const lunarStr = `${lunar.getYearInGanZhi()}年 ${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`;
+
+			els.gregorianDate.innerText = `${now.getFullYear()}年${pad(now.getMonth()+1)}月${pad(now.getDate())}日`;
+			els.lunarDate.innerText = `农历 ${lunarStr}`;
+
+			// 2. Find Eve
+			const nextEve = findEveAround(now, true);
+			const prevEve = findEveAround(now, false);
+
+			// Countdown
+			let diff = nextEve - now;
+			if (diff < 0) diff = 0;
+
+			const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+			const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+			const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+			const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+			els.days.innerText = pad(days);
+			els.hours.innerText = pad(hours);
+			els.minutes.innerText = pad(minutes);
+			els.seconds.innerText = pad(seconds);
+
+			// 3. Frozen Factor
+			let minDiffSeconds = 365 * 24 * 3600; // Arbitrary big
+
+			if (nextEve) {
+				minDiffSeconds = Math.abs((nextEve - now) / 1000);
+			}
+			if (prevEve) {
+				const prevDiff = Math.abs((now - prevEve) / 1000);
+				if (prevDiff < minDiffSeconds) {
+					minDiffSeconds = prevDiff;
+				}
+			}
+
+			const minDays = minDiffSeconds / 86400.0;
+			state.frozenFactor = Math.min(1.0, Math.max(0.0, minDays / CONFIG.maxFrozenDays));
+
+			// 4. Update Visuals
+			updateVisuals();
+			if(isPlaying) updateAudioParams();
+		}
+
+		function findEveAround(now, findFuture) {
+			const currentYear = now.getFullYear();
+			let candidates = [];
+
+			// Check last year, this year, next year
+			for (let y = currentYear - 1; y <= currentYear + 1; y++) {
+				try {
+					const lunarNewYear = Lunar.fromYmd(y, 1, 1);
+					const solar = lunarNewYear.getSolar();
+					const solarDate = new Date(solar.getYear(), solar.getMonth() - 1, solar.getDay());
+
+					const eveDate = new Date(solarDate);
+					eveDate.setDate(solarDate.getDate() - 1);
+					eveDate.setHours(0,0,0,0);
+
+					candidates.push(eveDate);
+				} catch (e) {
+					console.error(e);
+				}
+			}
+
+			candidates.sort((a,b) => a - b);
+
+			if (findFuture) {
+				for (let d of candidates) {
+					if (d > now || isSameDay(d, now)) {
+						return d;
+					}
+				}
+				const d = new Date(now);
+				d.setFullYear(d.getFullYear() + 1);
+				return d;
+			} else {
+				for (let i = candidates.length - 1; i >= 0; i--) {
+					if (candidates[i] < now) {
+						return candidates[i];
+					}
+				}
+				const d = new Date(now);
+				d.setFullYear(d.getFullYear() - 1);
+				return d;
+			}
+		}
+
+		function isSameDay(d1, d2) {
+			return d1.getFullYear() === d2.getFullYear() &&
+				d1.getMonth() === d2.getMonth() &&
+				d1.getDate() === d2.getDate();
+		}
+
+		function updateVisuals() {
+			const ff = state.frozenFactor;
+
+			let bgImage = '100frozen.png';
+			if (ff < 0.01) bgImage = 'nonfrozen.png';
+			else if (ff < 0.25) bgImage = '25frozen.png';
+			else if (ff < 0.50) bgImage = '50frozen.png';
+			else if (ff < 0.75) bgImage = '75frozen.png';
+
+			els.bgLayer.style.backgroundImage = `url('${bgImage}')`;
+
+			const r = Math.round(255 + (129 - 255) * ff);
+			const g = Math.round(255 + (212 - 255) * ff);
+			const b = Math.round(255 + (250 - 255) * ff);
+
+			document.documentElement.style.setProperty('--tint-color', `rgb(${r}, ${g}, ${b})`);
+			els.bgLayer.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+			els.bgLayer.style.backgroundBlendMode = 'multiply';
+
+			els.iceLayer.style.opacity = Math.min(1.0, Math.max(0.0, ff * ff));
+			els.iceLayer.style.display = ff < 0.05 ? 'none' : 'block';
+
+			const tr = Math.round(255 + (0 - 255) * ff);
+			const tg = Math.round(215 + (149 - 215) * ff);
+			const tb = Math.round(0 + (255 - 0) * ff);
+			const textColor = `rgb(${tr}, ${tg}, ${tb})`;
+
+			els.titleText.style.color = textColor;
+			els.timeLabels.forEach(el => el.style.color = textColor);
+			els.gregorianDate.style.color = textColor;
+			els.lunarDate.style.color = textColor;
+
+			const br = Math.round(255 + (224 - 255) * ff);
+			const bg = Math.round(255 + (247 - 255) * ff);
+			const bb = Math.round(255 + (250 - 255) * ff);
+			document.getElementById('app').style.backgroundColor = `rgb(${br}, ${bg}, ${bb})`;
+		}
+
+		const particles = [];
+		let particleCtx;
+
+		function initParticles() {
+			const cvs = els.canvas;
+			particleCtx = cvs.getContext('2d');
+			resizeCanvas();
+			window.addEventListener('resize', resizeCanvas);
+		}
+
+		function resizeCanvas() {
+			els.canvas.width = window.innerWidth;
+			els.canvas.height = window.innerHeight;
+		}
+
+		function createParticle(isCnyMode) {
+			const w = els.canvas.width;
+			const h = els.canvas.height;
+
+			let particle = {
+				x: Math.random() * w,
+				y: Math.random() * h,
+				speed: 0.5 + Math.random() * 2,
+				theta: Math.random() * Math.PI * 2,
+				swaySpeed: 0.02 + Math.random() * 0.05,
+				swayWidth: 0.5 + Math.random() * 1.5,
+				radius: 0,
+				color: ''
+			};
+
+			if (isCnyMode) {
+				particle.radius = 2.0 + Math.random() * 3.0;
+				const colors = [
+					'rgb(244, 67, 54)',
+					'rgb(255, 82, 82)',
+					'rgb(255, 235, 59)',
+					'rgb(255, 193, 7)',
+					'rgb(255, 152, 0)',
+					'rgb(255, 215, 0)'
+				];
+				particle.color = colors[Math.floor(Math.random() * colors.length)];
+				particle.speed = 1 + Math.random();
+			} else {
+				const ff = state.frozenFactor;
+				const variableSize = 6.0 * ff;
+				particle.radius = 2.0 + variableSize + (Math.random() * 2.0);
+
+				const alpha = 0.6 + Math.random() * 0.4;
+				particle.color = `rgba(255, 255, 255, ${alpha})`;
+				particle.speed = 0.5 + (Math.random() * 1.5);
+			}
+
+			return particle;
+		}
+
+		function renderLoop() {
+			const ctx = particleCtx;
+			const w = els.canvas.width;
+			const h = els.canvas.height;
+
+			ctx.clearRect(0, 0, w, h);
+
+			const isCnyMode = state.frozenFactor < 0.01;
+			const targetCount = isCnyMode ? 150 : 100;
+
+			if (particles.length > targetCount) {
+				particles.splice(targetCount);
+			}
+			while (particles.length < targetCount) {
+				const p = createParticle(isCnyMode);
+				particles.push(p);
+			}
+
+			if (!state.lastModeWasCny) state.lastModeWasCny = false;
+
+			if (isCnyMode !== state.lastModeWasCny) {
+				particles.length = 0;
+				state.lastModeWasCny = isCnyMode;
+			}
+
+			for (let i = 0; i < particles.length; i++) {
+				let p = particles[i];
+
+				p.y += p.speed;
+				p.theta += p.swaySpeed;
+				p.x += Math.sin(p.theta) * p.swayWidth;
+
+				if (p.y > h) {
+					const newP = createParticle(isCnyMode);
+					newP.y = -10;
+					particles[i] = newP;
+				} else {
+					ctx.fillStyle = p.color;
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+					ctx.fill();
+				}
+			}
+
+			requestAnimationFrame(renderLoop);
+		}
+
+		init();
+	</script>
+</body>
+</html>

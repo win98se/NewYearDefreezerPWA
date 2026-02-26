@@ -1,0 +1,23 @@
+{
+	"background_color": "#0175C2",
+	"description": "一个春节倒计时应用。",
+	"display": "standalone",
+	"icons": [
+		{
+			"src": "192.png",
+			"sizes": "192x192",
+			"type": "image/png"
+		},
+		{
+			"src": "512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		}
+	],
+	"name": "恭喜发财解冻器 PWA",
+	"orientation": "portrait-primary",
+	"prefer_related_applications": false,
+	"short_name": "恭喜发财解冻器",
+	"start_url": ".",
+	"theme_color": "#0175C2"
+}
